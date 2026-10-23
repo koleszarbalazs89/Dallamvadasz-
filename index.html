@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vak Lejátszó</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Figtree:wght@400;600&display=swap">
+<style>
+  /* Layout: egyetlen középre igazított oszlop, mindig csak egy "képernyő" látszik */
+  :root {
+    --bg: #14111c;
+    --panel: #1f1a2b;
+    --line: #342c47;
+    --fg: #f1ecf8;
+    --muted: #a59bb8;
+    --accent: #ffcf3f;
+    --accent-ink: #1a1405;
+    --ok: #4fd18b;
+    --bad: #ff6b6b;
+    --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+    --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  #game { display: flex; flex-direction: column; gap: 20px; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg); font: 16px/1.5 var(--body);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  main { max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; padding-top: 24px; }
+  h1 { font: 800 1.6rem/1.1 var(--display); margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--accent); }
+  h2 { font: 600 1rem/1.2 var(--display); margin: 0; }
+  p { margin: 0; }
+  .muted { color: var(--muted); font-size: 0.92rem; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  input, select {
+    width: 100%; font: inherit; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  }
+  code.uri { display: block; background: var(--bg); border: 1px dashed var(--line); border-radius: 10px; padding: 10px; font-size: 0.85rem; word-break: break-all; }
+  button {
+    font: 600 1rem var(--body); border: 0; border-radius: 12px; padding: 14px 18px; cursor: pointer;
+    background: var(--line); color: var(--fg);
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); }
+  button.huge { font: 800 1.25rem var(--display); padding: 28px 18px; border-radius: 20px; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 140px; }
+  .status { font-size: 0.9rem; min-height: 1.4em; }
+  .status.err { color: var(--bad); }
+  .status.ok { color: var(--ok); }
+  #scanWrap { position: relative; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 1 / 1; max-width: 100%; }
+  #scanWrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #scanWrap::after { content: ""; position: absolute; inset: 18%; border: 3px solid var(--accent); border-radius: 18px; box-shadow: 0 0 0 999px rgba(0,0,0,.35); }
+  .playing { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 28px 18px; text-align: center; }
+  .bars { display: flex; gap: 6px; height: 56px; align-items: flex-end; }
+  .bars i { width: 10px; background: var(--accent); border-radius: 4px; animation: b 0.9s ease-in-out infinite; }
+  .bars i:nth-child(2) { animation-delay: .15s } .bars i:nth-child(3) { animation-delay: .3s } .bars i:nth-child(4) { animation-delay: .45s } .bars i:nth-child(5) { animation-delay: .6s }
+  .bars.paused i { animation-play-state: paused; }
+  @keyframes b { 0%,100% { height: 20%; } 50% { height: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .bars i { animation: none; height: 60%; } }
+  .reveal { display: flex; gap: 14px; align-items: center; text-align: left; }
+  .reveal img { width: 84px; height: 84px; border-radius: 10px; object-fit: cover; flex: none; }
+  .reveal .year { font: 800 2rem/1 var(--display); color: var(--accent); }
+  .reveal .t { font-weight: 600; }
+  .reveal > div { min-width: 0; }
+  .link { background: none; padding: 0; color: var(--muted); text-decoration: underline; font-weight: 400; font-size: 0.85rem; }
+  ol { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <header class="row" style="align-items:center">
+    <h1>Vak <span>Lejátszó</span></h1>
+  </header>
+
+  <!-- 1. Beállítás -->
+  <section id="setup" class="card" hidden>
+    <h2>Első beállítás</h2>
+    <ol class="muted">
+      <li>Nyisd meg: developer.spotify.com/dashboard → <b>Create app</b>.</li>
+      <li>A <b>Redirect URI</b> mezőbe pontosan ezt másold be:</li>
+    </ol>
+    <code class="uri" id="redirUri"></code>
+    <button id="copyUri">Redirect URI másolása</button>
+    <ol class="muted" start="3">
+      <li>API-nál pipáld be: <b>Web API</b>. Mentés.</li>
+      <li>Az app oldaláról másold ide a <b>Client ID</b>-t.</li>
+    </ol>
+    <label for="clientId">Client ID</label>
+    <input id="clientId" autocomplete="off" spellcheck="false" placeholder="pl. 3f9a…">
+    <button class="primary" id="login">Bejelentkezés Spotifyjal</button>
+    <p class="status" id="setupStatus"></p>
+  </section>
+
+  <!-- 2. Játék -->
+  <section id="game" hidden>
+    <div class="card">
+      <label for="device">Hol szóljon a zene?</label>
+      <div class="row">
+        <select id="device"></select>
+        <button id="refreshDev" style="flex:0 0 auto">Frissítés</button>
+      </div>
+      <p class="muted">Ha üres a lista: nyisd meg a Spotify appot a telefonon vagy a hangszórón, indíts el bármit egy pillanatra, aztán nyomj frissítést.</p>
+    </div>
+
+    <div id="idle" class="card">
+      <button class="primary huge" id="scanBtn">Kártya beolvasása</button>
+      <p class="status" id="gameStatus"></p>
+    </div>
+
+    <div id="scanner" class="card" hidden>
+      <div id="scanWrap"><video id="video" playsinline muted></video></div>
+      <button id="cancelScan">Mégse</button>
+    </div>
+
+    <div id="player" class="card" hidden>
+      <div class="playing">
+        <div class="bars" id="bars"><i></i><i></i><i></i><i></i><i></i></div>
+        <h2 id="playMsg">Szól a zene…</h2>
+      </div>
+      <div class="row">
+        <button id="pauseBtn">Szünet</button>
+        <button id="revealBtn">Felfedés</button>
+      </div>
+      <div class="reveal" id="revealBox" hidden>
+        <img id="rImg" alt="">
+        <div>
+          <div class="year" id="rYear"></div>
+          <div class="t" id="rTitle"></div>
+          <div class="muted" id="rArtist"></div>
+        </div>
+      </div>
+      <button class="primary huge" id="nextBtn">Következő kártya</button>
+    </div>
+
+    <button class="link" id="logout">Kijelentkezés / Client ID módosítása</button>
+  </section>
+</main>
+
+<canvas id="canvas" hidden></canvas>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const REDIRECT = location.origin + location.pathname;
+const SCOPES = "user-modify-playback-state user-read-playback-state";
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  del: k => { try { localStorage.removeItem(k); } catch {} }
+};
+
+let currentTrack = null, paused = false, stream = null, scanning = false;
+
+/* ---------- PKCE bejelentkezés ---------- */
+const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function randStr(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return b64url(a).slice(0, n); }
+
+async function login() {
+  const cid = $("clientId").value.trim();
+  if (!cid) { setStatus("setupStatus", "Add meg a Client ID-t.", "err"); return; }
+  store.set("clientId", cid);
+  const verifier = randStr(64);
+  store.set("verifier", verifier);
+  const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+  const p = new URLSearchParams({ response_type: "code", client_id: cid, scope: SCOPES,
+    code_challenge_method: "S256", code_challenge: challenge, redirect_uri: REDIRECT });
+  location.href = "https://accounts.spotify.com/authorize?" + p;
+}
+
+async function tokenRequest(params) {
+  const r = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params)
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error_description || j.error || "Token hiba");
+  store.set("access", j.access_token);
+  store.set("expires", String(Date.now() + (j.expires_in - 60) * 1000));
+  if (j.refresh_token) store.set("refresh", j.refresh_token);
+}
+
+async function getToken() {
+  if (store.get("access") && Date.now() < Number(store.get("expires"))) return store.get("access");
+  if (!store.get("refresh")) throw new Error("Nincs bejelentkezve");
+  await tokenRequest({ grant_type: "refresh_token", refresh_token: store.get("refresh"), client_id: store.get("clientId") });
+  return store.get("access");
+}
+
+async function api(path, opts = {}) {
+  const t = await getToken();
+  const r = await fetch("https://api.spotify.com/v1" + path, {
+    ...opts, headers: { Authorization: "Bearer " + t, "Content-Type": "application/json", ...(opts.headers || {}) }
+  });
+  if (r.status === 204) return null;
+  const txt = await r.text();
+  const j = txt ? JSON.parse(txt) : null;
+  if (!r.ok) throw new Error((j && j.error && j.error.message) || ("HTTP " + r.status));
+  return j;
+}
+
+/* ---------- Eszközök ---------- */
+async function loadDevices() {
+  const sel = $("device");
+  try {
+    const { devices } = await api("/me/player/devices");
+    const saved = store.get("deviceId");
+    sel.innerHTML = devices.length ? "" : '<option value="">Nincs aktív Spotify eszköz</option>';
+    devices.forEach(d => {
+      const o = document.createElement("option");
+      o.value = d.id; o.textContent = d.name + " (" + d.type + ")";
+      if (d.id === saved || (!saved && d.is_active)) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (sel.value) store.set("deviceId", sel.value);
+  } catch (e) { setStatus("gameStatus", "Eszközlista hiba: " + e.message, "err"); }
+}
+
+/* ---------- QR beolvasás ---------- */
+function parseTrack(text) {
+  const m = text.match(/open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/([A-Za-z0-9]{22})/) || text.match(/spotify:track:([A-Za-z0-9]{22})/);
+  return m ? m[1] : null;
+}
+
+async function startScan() {
+  setStatus("gameStatus", "");
+  if (!$("device").value) { setStatus("gameStatus", "Előbb válassz eszközt, ahol szóljon a zene.", "err"); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+  } catch (e) { setStatus("gameStatus", "Nem kaptam kamera-engedélyt. Engedélyezd a böngészőben.", "err"); return; }
+  show("scanner");
+  const v = $("video"); v.srcObject = stream; await v.play();
+  scanning = true; requestAnimationFrame(tick);
+}
+
+function stopScan() {
+  scanning = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+}
+
+function tick() {
+  if (!scanning) return;
+  const v = $("video"), c = $("canvas");
+  if (v.readyState === v.HAVE_ENOUGH_DATA) {
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(v, 0, 0, c.width, c.height);
+    const code = jsQR(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "dontInvert" });
+    if (code && code.data) {
+      const id = parseTrack(code.data);
+      stopScan();
+      if (id) { playTrack(id); }
+      else {
+        show("idle");
+        const short = /spotify\.link|spoti\.fi/.test(code.data);
+        setStatus("gameStatus", short
+          ? "Ez rövidített Spotify-link, ezt a böngésző nem tudja feloldani. Szólj, és megoldjuk."
+          : "Ez a kód nem Spotify-szám linkje.", "err");
+      }
+      return;
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+/* ---------- Lejátszás ---------- */
+async function playTrack(id) {
+  currentTrack = id; paused = false;
+  $("revealBox").hidden = true; $("revealBtn").disabled = false;
+  $("pauseBtn").textContent = "Szünet"; $("bars").classList.remove("paused");
+  $("playMsg").textContent = "Indítás…";
+  show("player");
+  try {
+    await api("/me/player/play?device_id=" + encodeURIComponent($("device").value), {
+      method: "PUT", body: JSON.stringify({ uris: ["spotify:track:" + id] })
+    });
+    $("playMsg").textContent = "Szól a zene…";
+  } catch (e) {
+    show("idle");
+    setStatus("gameStatus", "Nem sikerült elindítani: " + e.message + ". Nyisd meg a Spotify appot a kiválasztott eszközön, és frissítsd a listát.", "err");
+  }
+}
+
+async function togglePause() {
+  const dev = encodeURIComponent($("device").value);
+  try {
+    if (paused) await api("/me/player/play?device_id=" + dev, { method: "PUT" });
+    else await api("/me/player/pause?device_id=" + dev, { method: "PUT" });
+    paused = !paused;
+    $("pauseBtn").textContent = paused ? "Folytatás" : "Szünet";
+    $("bars").classList.toggle("paused", paused);
+    $("playMsg").textContent = paused ? "Szünetel" : "Szól a zene…";
+  } catch (e) { $("playMsg").textContent = "Hiba: " + e.message; }
+}
+
+async function reveal() {
+  try {
+    const t = await api("/tracks/" + currentTrack);
+    $("rYear").textContent = (t.album.release_date || "").slice(0, 4);
+    $("rTitle").textContent = t.name;
+    $("rArtist").textContent = t.artists.map(a => a.name).join(", ");
+    const img = t.album.images[1] || t.album.images[0];
+    $("rImg").src = img ? img.url : ""; $("rImg").hidden = !img;
+    $("revealBox").hidden = false; $("revealBtn").disabled = true;
+  } catch (e) { $("playMsg").textContent = "Hiba: " + e.message; }
+}
+
+/* ---------- UI segédek ---------- */
+function show(which) {
+  ["idle", "scanner", "player"].forEach(id => $(id).hidden = id !== which);
+}
+function setStatus(id, msg, cls) { const el = $(id); el.textContent = msg; el.className = "status " + (cls || ""); }
+
+$("redirUri").textContent = REDIRECT;
+$("copyUri").onclick = async () => {
+  try { await navigator.clipboard.writeText(REDIRECT); $("copyUri").textContent = "Másolva"; }
+  catch { const r = document.createRange(); r.selectNodeContents($("redirUri")); getSelection().removeAllRanges(); getSelection().addRange(r); }
+};
+$("clientId").value = store.get("clientId") || "";
+$("login").onclick = login;
+$("device").onchange = () => store.set("deviceId", $("device").value);
+$("refreshDev").onclick = loadDevices;
+$("scanBtn").onclick = startScan;
+$("cancelScan").onclick = () => { stopScan(); show("idle"); };
+$("pauseBtn").onclick = togglePause;
+$("revealBtn").onclick = reveal;
+$("nextBtn").onclick = startScan;
+$("logout").onclick = () => { ["access", "refresh", "expires", "verifier"].forEach(store.del); location.href = REDIRECT; };
+
+/* ---------- Indulás ---------- */
+(async function init() {
+  const q = new URLSearchParams(location.search);
+  if (q.get("code")) {
+    try {
+      await tokenRequest({ grant_type: "authorization_code", code: q.get("code"), redirect_uri: REDIRECT,
+        client_id: store.get("clientId"), code_verifier: store.get("verifier") });
+      history.replaceState(null, "", REDIRECT);
+    } catch (e) { $("setup").hidden = false; setStatus("setupStatus", "Bejelentkezési hiba: " + e.message, "err"); return; }
+  } else if (q.get("error")) {
+    $("setup").hidden = false; setStatus("setupStatus", "A Spotify elutasította: " + q.get("error"), "err"); return;
+  }
+  if (store.get("refresh")) {
+    $("game").hidden = false; show("idle"); loadDevices();
+  } else {
+    $("setup").hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
