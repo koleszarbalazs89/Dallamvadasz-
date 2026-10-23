@@ -111,7 +111,8 @@
         <select id="device"></select>
         <button id="refreshDev" style="flex:0 0 auto">Frissítés</button>
       </div>
-      <p class="muted">Ha üres a lista: nyisd meg a Spotify appot a telefonon vagy a hangszórón, indíts el bármit egy pillanatra, aztán nyomj frissítést.</p>
+      <p class="muted" id="account"></p>
+      <p class="muted">Ha nincs a listában a telefonod: nyisd meg a Spotify appot a telefonon vagy a hangszórón, indíts el bármit egy pillanatra, aztán nyomj frissítést.</p>
     </div>
 
     <div id="idle" class="card">
@@ -215,15 +216,31 @@ async function loadDevices() {
   try {
     const { devices } = await api("/me/player/devices");
     const saved = store.get("deviceId");
-    sel.innerHTML = devices.length ? "" : '<option value="">Nincs aktív Spotify eszköz</option>';
+    sel.innerHTML = '<option value="active">Ami épp szól (aktív eszköz)</option>';
     devices.forEach(d => {
       const o = document.createElement("option");
       o.value = d.id; o.textContent = d.name + " (" + d.type + ")";
       if (d.id === saved || (!saved && d.is_active)) o.selected = true;
       sel.appendChild(o);
     });
-    if (sel.value) store.set("deviceId", sel.value);
-  } catch (e) { setStatus("gameStatus", "Eszközlista hiba: " + e.message, "err"); }
+    store.set("deviceId", sel.value);
+    setStatus("gameStatus", devices.length ? "" : "A Spotify nem adott vissza eszközt, ezért az épp aktív lejátszón próbálom.", "");
+  } catch (e) {
+    sel.innerHTML = '<option value="active">Ami épp szól (aktív eszköz)</option>';
+    setStatus("gameStatus", "Eszközlista hiba: " + e.message, "err");
+  }
+}
+
+async function loadAccount() {
+  try {
+    const me = await api("/me");
+    $("account").textContent = "Bejelentkezve: " + (me.display_name || me.id) + (me.email ? " (" + me.email + ")" : "");
+  } catch (e) { $("account").textContent = "Fiók lekérése sikertelen: " + e.message; }
+}
+
+function devParam() {
+  const v = $("device").value;
+  return v && v !== "active" ? "?device_id=" + encodeURIComponent(v) : "";
 }
 
 /* ---------- QR beolvasás ---------- */
@@ -234,7 +251,6 @@ function parseTrack(text) {
 
 async function startScan() {
   setStatus("gameStatus", "");
-  if (!$("device").value) { setStatus("gameStatus", "Előbb válassz eszközt, ahol szóljon a zene.", "err"); return; }
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
   } catch (e) { setStatus("gameStatus", "Nem kaptam kamera-engedélyt. Engedélyezd a böngészőben.", "err"); return; }
@@ -282,7 +298,7 @@ async function playTrack(id) {
   $("playMsg").textContent = "Indítás…";
   show("player");
   try {
-    await api("/me/player/play?device_id=" + encodeURIComponent($("device").value), {
+    await api("/me/player/play" + devParam(), {
       method: "PUT", body: JSON.stringify({ uris: ["spotify:track:" + id] })
     });
     $("playMsg").textContent = "Szól a zene…";
@@ -293,10 +309,9 @@ async function playTrack(id) {
 }
 
 async function togglePause() {
-  const dev = encodeURIComponent($("device").value);
   try {
-    if (paused) await api("/me/player/play?device_id=" + dev, { method: "PUT" });
-    else await api("/me/player/pause?device_id=" + dev, { method: "PUT" });
+    if (paused) await api("/me/player/play" + devParam(), { method: "PUT" });
+    else await api("/me/player/pause" + devParam(), { method: "PUT" });
     paused = !paused;
     $("pauseBtn").textContent = paused ? "Folytatás" : "Szünet";
     $("bars").classList.toggle("paused", paused);
@@ -351,7 +366,7 @@ $("logout").onclick = () => { ["access", "refresh", "expires", "verifier"].forEa
     $("setup").hidden = false; setStatus("setupStatus", "A Spotify elutasította: " + q.get("error"), "err"); return;
   }
   if (store.get("refresh")) {
-    $("game").hidden = false; show("idle"); loadDevices();
+    $("game").hidden = false; show("idle"); loadDevices(); loadAccount();
   } else {
     $("setup").hidden = false;
   }
