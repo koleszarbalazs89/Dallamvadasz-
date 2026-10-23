@@ -55,7 +55,10 @@
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: 0.5; cursor: default; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .row > * { flex: 1 1 140px; }
+  .row > * { flex: 1 1 140px; min-width: 0; }
+  body { overflow-x: hidden; }
+  main > * { min-width: 0; }
+  p { overflow-wrap: anywhere; }
   .status { font-size: 0.9rem; min-height: 1.4em; }
   .status.err { color: var(--bad); }
   .status.ok { color: var(--ok); }
@@ -112,6 +115,7 @@
         <button id="refreshDev" style="flex:0 0 auto">Frissítés</button>
       </div>
       <p class="muted" id="account"></p>
+      <p class="muted" id="diag"></p>
       <p class="muted">Ha nincs a listában a telefonod: nyisd meg a Spotify appot a telefonon vagy a hangszórón, indíts el bármit egy pillanatra, aztán nyomj frissítést.</p>
     </div>
 
@@ -223,8 +227,25 @@ async function loadDevices() {
       if (d.id === saved || (!saved && d.is_active)) o.selected = true;
       sel.appendChild(o);
     });
+    // Tartalék: a jelenlegi lejátszás eszköze (néha itt látszik, amikor a listában nem)
+    let info = "";
+    try {
+      const cur = await api("/me/player");
+      if (cur && cur.device) {
+        const d = cur.device;
+        if (d.id && !devices.some(x => x.id === d.id)) {
+          const o = document.createElement("option");
+          o.value = d.id; o.textContent = d.name + " (most ezen szól)";
+          sel.appendChild(o);
+          if (!saved || saved === "active") o.selected = true;
+        }
+        info = "Spotify szerint most ezen szól: " + d.name + (cur.is_playing ? "" : " (szünetel)");
+      } else {
+        info = "A Spotify szerint ezen a fiókon most semmi nem szól.";
+      }
+    } catch (e) { info = "Lejátszás lekérése sikertelen: " + e.message; }
     store.set("deviceId", sel.value);
-    setStatus("gameStatus", devices.length ? "" : "A Spotify nem adott vissza eszközt, ezért az épp aktív lejátszón próbálom.", "");
+    $("diag").textContent = "Talált eszközök: " + devices.length + ". " + info;
   } catch (e) {
     sel.innerHTML = '<option value="active">Ami épp szól (aktív eszköz)</option>';
     setStatus("gameStatus", "Eszközlista hiba: " + e.message, "err");
@@ -234,7 +255,7 @@ async function loadDevices() {
 async function loadAccount() {
   try {
     const me = await api("/me");
-    $("account").textContent = "Bejelentkezve: " + (me.display_name || me.id) + (me.email ? " (" + me.email + ")" : "");
+    $("account").textContent = "Bejelentkezve: " + (me.display_name || me.id) + " · fiók: " + me.id + (me.product ? " · " + me.product : "");
   } catch (e) { $("account").textContent = "Fiók lekérése sikertelen: " + e.message; }
 }
 
